@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  labels:
+    app: airflow
+    chart: airflow-1.0.0
+spec:
+  selector:
+    matchLabels:
+      app: airflow
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  template:
+    metadata:
+      annotations:
+        requires_envoy: "false"
+      labels:
+        app: airflow
+        component: scheduler
+        team: pde
+    spec:
+      serviceAccountName: airflow
+      automountServiceAccountToken: true
+      volumes:
+      - name: airflow-configmap
+        configMap:
+          name: airflow-configmap
+      - name: dag-files
+        emptyDir: {}
+      - name: git-config
+        emptyDir: {}
+      securityContext:
+        runAsUser: 50000
+      restartPolicy: Always
+      containers:
+        - name: git-sync
+          image: k8s.gcr.io/git-sync:v3.1.6
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 65533
+          envFrom:
+          - configMapRef:
+              name: oshiya-gitsync
+          volumeMounts:
+            - name: dag-files
+              mountPath: /usr/local/airflow/dags
+              readOnly: false
+            - name: git-config
+              mountPath: /tmp/
+              readOnly: false
+        - name: airflow-scheduler
+          image: our-own-image:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: web
+              containerPort: 8080
+              protocol: TCP
+          args: ["scheduler", "-p"]
+          envFrom:
+            - configMapRef:
+                name: airflow-env
